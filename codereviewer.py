@@ -83,6 +83,8 @@ class CodeReviewer:
                 generated_review = response.parts[0].text
                 # Remove markdown formatting and decode JSON
                 generated_review = generated_review.replace("```json\n", "").replace("```", "").strip()
+                print(f"Generated review response: {generated_review}")
+
                 try:
                     return json.loads(generated_review)
                 except json.JSONDecodeError as e:
@@ -122,6 +124,8 @@ class CodeAssistant:
                 generated_response = response.parts[0].text
                 # Remove markdown formatting and decode JSON
                 generated_response = generated_response.replace("```json\n", "").replace("```", "").strip()
+                print(f"gen response: {generated_response}")
+
                 try:
                     return json.loads(generated_response)
                 except json.JSONDecodeError as e:

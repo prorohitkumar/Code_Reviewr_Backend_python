@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
 import json
+import re
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
@@ -21,14 +22,10 @@ genai.configure(api_key=GOOGLE_API_KEY)
 app = Flask(__name__)
 CORS(app)
 
-config = {
-    'temperature': 0,
-    'top_k': 20,
-    'top_p': 0.9,
-    'max_output_tokens': 2048
-}
+config = {"temperature": 0, "top_k": 20, "top_p": 0.9, "max_output_tokens": 2048}
 
-model = genai.GenerativeModel(model_name="gemini-pro")
+model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+
 
 class CodeReviewer:
     def __init__(self, api_key):
@@ -46,57 +43,89 @@ class CodeReviewer:
                 "5. Engineering Practices: Check for adherence to coding standards, meaningful naming conventions, proper commenting and documentation, modularity, separation of concerns, use of design patterns, and proper error handling.\n"
                 "For each issue, provide a description and criticality level (1-5), and suggest refactored code if applicable.\n"
                 "Return the response in the following JSON format:\n"
-                "{\n"
-                '  "codeIssues": [\n'
-                '    {"issueType": "Logical error", "description": "", "criticalityLevel": 3},\n'
-                '    {"issueType": "Runtime error", "description": "", "criticalityLevel": 2}\n'
-                '  ],\n'
-                '  "performanceOptimizationIssues": [\n'
-                '    {"issueType": "Unoptimized Time and Space Complexity of Algorithms", "description": "", "criticalityLevel": 1},\n'
-                '    {"issueType": "Unoptimized use of Loops", "description": "POxyz", "criticalityLevel": 2}\n'
-                '  ],\n'
-                '  "securityVulnerabilityIssues": [\n'
-                '    {"issueType": "OWASP 10 security vulnerabilities", "description": "", "criticalityLevel": 3},\n'
-                '    {"issueType": "hardcoded credentials or API keys in code", "description": "", "criticalityLevel": 4}\n'
-                '  ],\n'
-                '  "scalabilityIssues": [\n'
-                '    {"issueType": "Inefficient use of database queries", "description": "", "criticalityLevel": 5},\n'
-                '    {"issueType": "improper indexing", "description": "", "criticalityLevel": 1}\n'
-                '  ],\n'
-                '  "engineeringPracticesIssues": [\n'
-                '    {"issueType": "Non-adherence to coding standards", "description": "", "criticalityLevel": 3},\n'
-                '    {"issueType": "non-meaningful and non-descriptive constructs", "description": "", "criticalityLevel": 4}\n'
-                '  ],\n'
-                '  "refactoredCode": "refactored/updated/correct code"\n'
-                "}\n"
-                "If no issues are found, return an empty array for each parameter.\n"
+                "{"
+                '  "codeIssues": ['
+                '    {"issueType": "Logical error", "description": "", "criticalityLevel": 3},'
+                '    {"issueType": "Runtime error", "description": "", "criticalityLevel": 2}'
+                "  ],"
+                '  "performanceOptimizationIssues": ['
+                '    {"issueType": "Unoptimized Time and Space Complexity of Algorithms", "description": "", "criticalityLevel": 1},'
+                '    {"issueType": "Unoptimized use of Loops", "description": "POxyz", "criticalityLevel": 2}'
+                "  ],"
+                '  "securityVulnerabilityIssues": ['
+                '    {"issueType": "OWASP 10 security vulnerabilities", "description": "", "criticalityLevel": 3},'
+                '    {"issueType": "hardcoded credentials or API keys in code", "description": "", "criticalityLevel": 4}'
+                "  ],"
+                '  "scalabilityIssues": ['
+                '    {"issueType": "Inefficient use of database queries", "description": "", "criticalityLevel": 5},'
+                '    {"issueType": "improper indexing", "description": "", "criticalityLevel": 1}'
+                "  ],"
+                '  "engineeringPracticesIssues": ['
+                '    {"issueType": "Non-adherence to coding standards", "description": "", "criticalityLevel": 3},'
+                '    {"issueType": "non-meaningful and non-descriptive constructs", "description": "", "criticalityLevel": 4}'
+                "  ],"
+                '  "refactoredCode": "refactored/updated/correct code"'
+                "}"
+                "If no issues are found, return an empty array for each parameter."
             )
 
-            response = model.generate_content(prompt, safety_settings={
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            })
+            response = model.generate_content(
+                prompt,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                },
+            )
 
             print(f"Raw response: {response}")
 
             if response and response.parts:
                 generated_review = response.parts[0].text
-                # Remove markdown formatting and decode JSON
-                generated_review = generated_review.replace("```json\n", "").replace("```", "").strip()
-                print(f"Generated review response: {generated_review}")
+                # Extract only the JSON part of the response
+                json_match = re.search(
+                    r'\{.*"refactoredCode":', generated_review, re.DOTALL
+                )
+                if json_match:
+                    json_str = json_match.group()
+                    json_str += '""}'
 
-                try:
-                    return json.loads(generated_review)
-                except json.JSONDecodeError as e:
-                    print(f"JSON decode error: {e}")
-                    return {"error": "Error decoding JSON response", "raw_response": generated_review}
+                    try:
+                        review_dict = json.loads(json_str)
+
+                        # Now extract the refactored code separately
+                        refactored_code_match = re.search(
+                            r'"refactoredCode":(.*)$', generated_review, re.DOTALL
+                        )
+                        if refactored_code_match:
+                            review_dict["refactoredCode"] = refactored_code_match.group(
+                                1
+                            ).strip()[
+                                1:-1
+                            ]  # Remove surrounding quotes
+
+                        return review_dict
+                    except json.JSONDecodeError as e:
+                        print(f"JSON decode error: {e}")
+                        return {
+                            "error": "Error decoding JSON response",
+                            "raw_response": json_str,
+                        }
+                else:
+                    return {
+                        "error": "No JSON found in response",
+                        "raw_response": generated_review,
+                    }
             else:
                 print(f"Unexpected response format: {response}")
-                return {"error": "Unexpected response format", "raw_response": str(response)}
+                return {
+                    "error": "Unexpected response format",
+                    "raw_response": str(response),
+                }
 
         except Exception as e:
             print(f"Error generating review: {e}")
             return {"error": f"Error generating review: {e}"}
+
 
 class CodeAssistant:
     def __init__(self, api_key):
@@ -113,37 +142,51 @@ class CodeAssistant:
                 f'{{\n  "Response": "provide your response to the prompt"\n}}'
             )
 
-            response = model.generate_content(prompt, safety_settings={
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            })
+            response = model.generate_content(
+                prompt,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                },
+            )
 
             print(f"Raw response: {response}")
 
             if response and response.parts:
                 generated_response = response.parts[0].text
                 # Remove markdown formatting and decode JSON
-                generated_response = generated_response.replace("```json\n", "").replace("```", "").strip()
+                generated_response = (
+                    generated_response.replace("```json\n", "")
+                    .replace("```", "")
+                    .strip()
+                )
                 print(f"gen response: {generated_response}")
 
                 try:
                     return json.loads(generated_response)
                 except json.JSONDecodeError as e:
                     print(f"JSON decode error: {e}")
-                    return {"error": "Error decoding JSON response", "raw_response": generated_response}
+                    return {
+                        "error": "Error decoding JSON response",
+                        "raw_response": generated_response,
+                    }
             else:
                 print(f"Unexpected response format: {response}")
-                return {"error": "Unexpected response format", "raw_response": str(response)}
+                return {
+                    "error": "Unexpected response format",
+                    "raw_response": str(response),
+                }
 
         except Exception as e:
             print(f"Error generating response: {e}")
             return {"error": f"Error generating response: {e}"}
 
-@app.route('/review_code', methods=['POST'])
+
+@app.route("/review_code", methods=["POST"])
 def review_code():
     try:
         request_data = request.json
-        code = request_data.get('code')
+        code = request_data.get("code")
 
         print(f"Received code: {code}")
 
@@ -157,12 +200,13 @@ def review_code():
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/chat', methods=['POST'])
+
+@app.route("/chat", methods=["POST"])
 def chat():
     try:
         request_data = request.json
-        code = request_data.get('code')
-        user_prompt = request_data.get('userPrompt')
+        code = request_data.get("code")
+        user_prompt = request_data.get("userPrompt")
 
         print(f"Received code: {code}")
         print(f"Received user prompt: {user_prompt}")
@@ -177,9 +221,11 @@ def chat():
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/', methods=['GET'])
+
+@app.route("/", methods=["GET"])
 def hello_world():
     return "Hii"
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5001)

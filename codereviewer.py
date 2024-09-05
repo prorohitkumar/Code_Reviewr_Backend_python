@@ -64,7 +64,7 @@ class CodeReviewer:
                 '    {"issueType": "Non-adherence to coding standards", "description": "", "criticalityLevel": 3},'
                 '    {"issueType": "non-meaningful and non-descriptive constructs", "description": "", "criticalityLevel": 4}'
                 "  ],"
-                '  "refactoredCode": "refactored/updated/correct code"'
+                '  "refactoredCode": "refactored/updated/correct code. Return only the code in the format of the language. Do not return in markdown format. Do not add any explanation to the refactored code. "'
                 "}"
                 "If no issues are found, return an empty array for each parameter."
             )
@@ -77,7 +77,7 @@ class CodeReviewer:
                 },
             )
 
-            print(f"Raw response: {response}")
+            # print(f"Raw response: {response}")
 
             if response and response.parts:
                 generated_review = response.parts[0].text
@@ -97,11 +97,13 @@ class CodeReviewer:
                             r'"refactoredCode":(.*)$', generated_review, re.DOTALL
                         )
                         if refactored_code_match:
-                            review_dict["refactoredCode"] = refactored_code_match.group(
+                            refactored_code = refactored_code_match.group(
                                 1
                             ).strip()[
                                 1:-1
                             ]  # Remove surrounding quotes
+                            # Preserve newlines in the refactored code
+                            review_dict["refactoredCode"] = refactored_code.replace('\\n', '\n')
 
                         return review_dict
                     except json.JSONDecodeError as e:
@@ -193,7 +195,8 @@ def review_code():
         reviewer = CodeReviewer(api_key=GOOGLE_API_KEY)
         review = reviewer.generate_review(code)
 
-        print(f"Review: {review}")
+        # print(f"Review: {review}")
+        print(review)
 
         return jsonify({"review": review})
     except Exception as e:
